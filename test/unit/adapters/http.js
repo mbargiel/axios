@@ -16,8 +16,16 @@ var express = require('express');
 var multer = require('multer');
 var bodyParser = require('body-parser');
 
-function createBasicProxy(httpModule, options, proxyCb) {
-  return httpModule.createServer(options, function (request, response) {
+function createBasicProxy(httpOrHttpsModule, proxyCb) {
+  var options;
+  if (httpOrHttpsModule === https) {
+    options = {
+      key: fs.readFileSync(path.join(__dirname, 'key.pem')),
+      cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
+    };
+  }
+
+  return httpOrHttpsModule.createServer(options, function (request, response) {
     proxyCb(request, response)
 
     var parsed = url.parse(request.url);
@@ -28,20 +36,27 @@ function createBasicProxy(httpModule, options, proxyCb) {
     };
 
     http.get(opts, function (res) {
-      var body = '';
+      response.writeHead(res.statusCode, res.headers);
       res.on('data', function (data) {
-        body += data;
+        response.write(data);
       });
       res.on('end', function () {
-        response.setHeader('Content-Type', 'text/html; charset=UTF-8');
-        response.end(body)
+        response.end();
       });
     });
-  })
+  });
 }
 
-function createSecureProxy(httpModule, options, proxyCb) {
-  return httpModule.createServer(options, function (request, response) {
+function createSecureProxy(httpOrHttpsModule, proxyCb) {
+  var options;
+  if (httpOrHttpsModule === https) {
+    options = {
+      key: fs.readFileSync(path.join(__dirname, 'key.pem')),
+      cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
+    };
+  }
+
+  return httpOrHttpsModule.createServer(options, function (request, response) {
     response.writeHead(400, 'Use HTTP CONNECT for HTTPS proxying');
     response.end();
   }).on('connect', function (req, clientSocket, head){
@@ -60,7 +75,7 @@ function createSecureProxy(httpModule, options, proxyCb) {
       serverSocket.on('end', function() { clientSocket.destroy(); });
       clientSocket.on('end', function() { serverSocket.destroy(); });
     });
-  })
+  });
 }
 
 describe('supports http with nodejs', function () {
@@ -138,7 +153,6 @@ describe('supports http with nodejs', function () {
   });
 
   it('should respect the timeout property', function (done) {
-
     server = http.createServer(function (req, res) {
       setTimeout(function () {
         res.end();
@@ -327,24 +341,8 @@ describe('supports http with nodejs', function () {
       res.end();
     }).listen(4444, function () {
       var proxyUseCount = 0;
-      proxy = http.createServer(function (request, response) {
+      proxy = createBasicProxy(http, function () {
         proxyUseCount += 1;
-        var parsed = url.parse(request.url);
-        var opts = {
-          host: parsed.hostname,
-          port: parsed.port,
-          path: parsed.path
-        };
-
-        http.get(opts, function (res) {
-          response.writeHead(res.statusCode, res.headers);
-          res.on('data', function (data) {
-            response.write(data)
-          });
-          res.on('end', function () {
-            response.end();
-          });
-        });
       }).listen(4000, function () {
         var configBeforeRedirectCount = 0;
         axios.get('http://localhost:4444/', {
@@ -714,58 +712,124 @@ describe('supports http with nodejs', function () {
     });
   });
 
-  it('should support basic HTTP proxying', function (done) {
-    var proxyUsed = false;
+  var proxyConnectTestCases = [
+    { httpOrHttpsModule: http, protocol: 'http:' },
+    { httpOrHttpsModule: https, protocol: 'https:' }
+  ];
 
-    server = http.createServer(function (req, res) {
-      res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-      res.end('12345');
-    }).listen(4444, function () {
-      proxy = createBasicProxy(http, {}, function() {
-        proxyUsed = true;
-      }).listen(4000, function () {
-        axios.get('http://localhost:4444/', {
-          proxy: {
-            host: 'localhost',
-            port: 4000
-          }
-        }).then(function (res) {
-          assert.equal(res.data, '12345', 'should get server data');
-          assert.equal(proxyUsed, true, 'should pass through proxy');
-          done();
-        }).catch(done);
+  proxyConnectTestCases.forEach(function(testCase) {
+    it('should support basic HTTP proxying over ' + testCase.protocol, function (done) {
+      var proxyUsed = false;
+
+      server = http.createServer(function (req, res) {
+        res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+        res.end('12345');
+      }).listen(4444, function () {
+        proxy = createBasicProxy(testCase.httpOrHttpsModule, function() {
+          proxyUsed = true;
+        }).listen(4000, function () {
+          axios.get('http://localhost:4444/', {
+            proxy: {
+              host: 'localhost',
+              port: 4000,
+              protocol: testCase.protocol
+            },
+            httpsAgent: new https.Agent({
+              rejectUnauthorized: false
+            })
+          }).then(function (res) {
+            assert.equal(res.data, '12345', 'should get server data');
+            assert.equal(proxyUsed, true, 'should pass through proxy');
+            done();
+          }).catch(done);
+        });
       });
     });
-  });
 
-  it('should support secure HTTPS proxying', function (done) {
-    var options = {
-      key: fs.readFileSync(path.join(__dirname, 'key.pem')),
-      cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
-    };
-    var proxyUsed = false;
+    it('should support secure HTTPS proxying over ' + testCase.protocol, function (done) {
+      var options = {
+        key: fs.readFileSync(path.join(__dirname, 'key.pem')),
+        cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
+      };
+      var proxyUsed = false;
 
-    server = https.createServer(options, function (req, res) {
-      res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-      res.end('12345');
-    }).listen(4444, function () {
-      proxy = createSecureProxy(https, options, function() {
-        proxyUsed = true;
-      }).listen(4000, function () {
-        axios.get('https://localhost:4444/', {
-          proxy: {
-            host: 'localhost',
-            port: 4000,
-            protocol: 'https:'
-          },
-          httpsAgent: new https.Agent({
-            rejectUnauthorized: false
-          })
-        }).then(function (res) {
-          assert.equal(res.data, '12345', 'should get server data');
-          assert.equal(proxyUsed, true, 'should pass through proxy');
-          done();
-        }).catch(done);
+      server = https.createServer(options, function (req, res) {
+        res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+        res.end('12345');
+      }).listen(4444, function () {
+        proxy = createSecureProxy(testCase.httpOrHttpsModule, function() {
+          proxyUsed = true;
+        }).listen(4000, function () {
+          axios.get('https://localhost:4444/', {
+            proxy: {
+              host: 'localhost',
+              port: 4000,
+              protocol: testCase.protocol
+            },
+            httpsAgent: new https.Agent({
+              rejectUnauthorized: false
+            })
+          }).then(function (res) {
+            assert.equal(res.data, '12345', 'should get server data');
+            assert.equal(proxyUsed, true, 'should pass through proxy');
+            done();
+          }).catch(done);
+        });
+      });
+    });
+
+    it('should support basic HTTP proxying over ' + testCase.protocol + ' configured via env var', function (done) {
+      var proxyUsed = false;
+
+      server = http.createServer(function (req, res) {
+        res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+        res.end('4567');
+      }).listen(4444, function () {
+        proxy = createBasicProxy(testCase.httpOrHttpsModule, function() {
+          proxyUsed = true;
+        }).listen(4000, function () {
+          // set the env variable
+          process.env.http_proxy = testCase.protocol + '//localhost:4000/';
+
+          axios.get('http://localhost:4444/', {
+            httpsAgent: new https.Agent({
+              rejectUnauthorized: false
+            })
+          }).then(function (res) {
+            assert.equal(res.data, '4567', 'should get server data');
+            assert.equal(proxyUsed, true, 'should pass through proxy');
+            done();
+          }).catch(done);
+        });
+      });
+    });
+
+    it('should support secure HTTPS proxying over ' + testCase.protocol + ' configured via env var', function (done) {
+      var proxyUsed = false;
+      var options = {
+        key: fs.readFileSync(path.join(__dirname, 'key.pem')),
+        cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
+      };
+
+      server = https.createServer(options, function (req, res) {
+        res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+        res.end('12345');
+      }).listen(4444, function () {
+        proxy = createSecureProxy(testCase.httpOrHttpsModule, function() {
+          proxyUsed = true;
+        }).listen(4000, function () {
+          process.env.https_proxy = testCase.protocol + '//localhost:4000/';
+
+          axios.get('https://localhost:4444/', {
+            httpsAgent: new https.Agent({
+              rejectUnauthorized: false
+            })
+          }).then(function (res) {
+            assert.equal(res.data, '12345', 'should get server data');
+            assert.equal(proxyUsed, true, 'should pass through proxy');
+            done();
+          }).catch(done);
+        });
       });
     });
   });
@@ -773,6 +837,7 @@ describe('supports http with nodejs', function () {
   it('should not pass through disabled proxy', function (done) {
     // set the env variable
     process.env.http_proxy = 'http://does-not-exists.example.com:4242/';
+    process.env.https_proxy = 'http://does-not-exists.example.com:4242/';
 
     server = http.createServer(function (req, res) {
       res.setHeader('Content-Type', 'text/html; charset=UTF-8');
@@ -787,101 +852,28 @@ describe('supports http with nodejs', function () {
     });
   });
 
-  it('should support proxy set via env var', function (done) {
-    var proxyUsed = false;
-
-    server = http.createServer(function (req, res) {
-      res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-      res.end('4567');
-    }).listen(4444, function () {
-      proxy = createBasicProxy(http, {}, function() {
-        proxyUsed = true;
-      }).listen(4000, function () {
-        // set the env variable
-        process.env.http_proxy = 'http://localhost:4000/';
-
-        axios.get('http://localhost:4444/').then(function (res) {
-          assert.equal(res.data, '4567', 'should get server data');
-          assert.equal(proxyUsed, true, 'should pass through proxy');
-          done();
-        }).catch(done);
-      });
-    });
-  });
-
-  it('should support HTTPS proxy set via env var', function (done) {
-    var proxyUsed = false;
-    var options = {
-      key: fs.readFileSync(path.join(__dirname, 'key.pem')),
-      cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
-    };
-
-    server = https.createServer(options, function (req, res) {
-      res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-      res.end('12345');
-    }).listen(4444, function () {
-      proxy = createSecureProxy(https, options, function() {
-        proxyUsed = true;
-      }).listen(4000, function () {
-        process.env.https_proxy = 'https://localhost:4000/';
-
-        axios.get('https://localhost:4444/', {
-          httpsAgent: new https.Agent({
-            rejectUnauthorized: false
-          })
-        }).then(function (res) {
-          assert.equal(res.data, '12345', 'should get server data');
-          assert.equal(proxyUsed, true, 'should pass through proxy');
-          done();
-        }).catch(done);
-      });
-    });
-  });
-
   it('should re-evaluate proxy on redirect when proxy set via env var', function (done) {
     process.env.http_proxy = 'http://localhost:4000'
-    process.env.no_proxy = 'localhost:4000'
 
     var proxyUseCount = 0;
+    var requestCount = 0;
 
     server = http.createServer(function (req, res) {
-      res.setHeader('Location', 'http://localhost:4000/redirected');
-      res.statusCode = 302;
+      requestCount += 1;
+      if (requestCount < 2) {
+        res.setHeader('Location', 'http://localhost:4444/redirected');
+        res.writeHead(302);
+      }
       res.end();
     }).listen(4444, function () {
-      proxy = http.createServer(function (request, response) {
-        var parsed = url.parse(request.url);
-        if (parsed.pathname === '/redirected') {
-          response.statusCode = 200;
-          response.end();
-          return;
-        }
-
+      proxy = createBasicProxy(http, function(request, response) {
         proxyUseCount += 1;
-
-        var opts = {
-          host: parsed.hostname,
-          port: parsed.port,
-          path: parsed.path,
-          protocol: parsed.protocol,
-          rejectUnauthorized: false
-        };
-
-        http.get(opts, function (res) {
-          var body = '';
-          res.on('data', function (data) {
-            body += data;
-          });
-          res.on('end', function () {
-            response.setHeader('Content-Type', 'text/html; charset=UTF-8');
-            response.setHeader('Location', res.headers.location);
-            response.end(body);
-          });
-        });
+        process.env.no_proxy = 'localhost:4444'
       }).listen(4000, function () {
         axios.get('http://localhost:4444/').then(function(res) {
           assert.equal(res.status, 200);
           assert.equal(proxyUseCount, 1);
+          assert.equal(requestCount, 2);
           done();
         }).catch(done);
       });
@@ -893,32 +885,16 @@ describe('supports http with nodejs', function () {
       res.setHeader('Content-Type', 'text/html; charset=UTF-8');
       res.end('4567');
     }).listen(4444, function () {
-      proxy = http.createServer(function (request, response) {
-        var parsed = url.parse(request.url);
-        var opts = {
-          host: parsed.hostname,
-          port: parsed.port,
-          path: parsed.path
-        };
-
-        http.get(opts, function (res) {
-          var body = '';
-          res.on('data', function (data) {
-            body += data;
-          });
-          res.on('end', function () {
-            response.setHeader('Content-Type', 'text/html; charset=UTF-8');
-            response.end(body + '1234');
-          });
-        });
-
+      var proxyUsed = false;
+      proxy = createBasicProxy(http, function() {
+        proxyUsed = true;
       }).listen(4000, function () {
         // set the env variable
         process.env.http_proxy = 'http://localhost:4000/';
         process.env.no_proxy = 'foo.com, localhost,bar.net , , quix.co';
 
         axios.get('http://localhost:4444/').then(function (res) {
-          assert.equal(res.data, '4567', 'should not use proxy for domains in no_proxy');
+          assert.ok(!proxyUsed, 'should not use proxy for domains in no_proxy');
           done();
         }).catch(done);
       });
@@ -930,32 +906,16 @@ describe('supports http with nodejs', function () {
       res.setHeader('Content-Type', 'text/html; charset=UTF-8');
       res.end('4567');
     }).listen(4444, function () {
-      proxy = http.createServer(function (request, response) {
-        var parsed = url.parse(request.url);
-        var opts = {
-          host: parsed.hostname,
-          port: parsed.port,
-          path: parsed.path
-        };
-
-        http.get(opts, function (res) {
-          var body = '';
-          res.on('data', function (data) {
-            body += data;
-          });
-          res.on('end', function () {
-            response.setHeader('Content-Type', 'text/html; charset=UTF-8');
-            response.end(body + '1234');
-          });
-        });
-
+      var proxyUsed = false;
+      proxy = createBasicProxy(http, function() {
+        proxyUsed = true;
       }).listen(4000, function () {
         // set the env variable
         process.env.http_proxy = 'http://localhost:4000/';
         process.env.no_proxy = 'foo.com, ,bar.net , quix.co';
 
         axios.get('http://localhost:4444/').then(function (res) {
-          assert.equal(res.data, '45671234', 'should use proxy for domains not in no_proxy');
+          assert.ok(proxyUsed, 'should use proxy for domains not in no_proxy');
           done();
         }).catch(done);
       });
@@ -970,7 +930,7 @@ describe('supports http with nodejs', function () {
       proxyAuthPassedToServer = req.headers['proxy-authorization'];
       res.end();
     }).listen(4444, function () {
-      proxy = createBasicProxy(http, {}, function (req, res) {
+      proxy = createBasicProxy(http, function (req, res) {
         proxyAuthPassedToProxy = req.headers['proxy-authorization'];
       }).listen(4000, function () {
         axios.get('http://localhost:4444/', {
@@ -1000,7 +960,7 @@ describe('supports http with nodejs', function () {
       proxyAuthPassedToServer = req.headers['proxy-authorization'];
       res.end();
     }).listen(4444, function () {
-      proxy = createBasicProxy(http, {}, function (req, res) {
+      proxy = createBasicProxy(http, function (req, res) {
         proxyAuthPassedToProxy = req.headers['proxy-authorization'];
       }).listen(4000, function () {
         process.env.http_proxy = 'http://user:pass@localhost:4000/';
@@ -1023,7 +983,7 @@ describe('supports http with nodejs', function () {
       proxyAuthPassedToServer = req.headers['proxy-authorization'];
       res.end();
     }).listen(4444, function () {
-      proxy = createBasicProxy(http, {}, function (req, res) {
+      proxy = createBasicProxy(http, function (req, res) {
         proxyAuthPassedToProxy = req.headers['proxy-authorization'];
       }).listen(4000, function () {
         axios.get('http://localhost:4444/', {
