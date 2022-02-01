@@ -228,7 +228,7 @@ describe('supports http with nodejs', function () {
       axios.get('http://localhost:4444/').then(function (res) {
         assert.deepEqual(res.data, data);
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -248,7 +248,7 @@ describe('supports http with nodejs', function () {
       axios.get('http://localhost:4444/').then(function (res) {
         assert.deepEqual(res.data, data);
         done();
-      });
+      }).catch(done);;
     });
   });
 
@@ -270,7 +270,7 @@ describe('supports http with nodejs', function () {
         assert.equal(res.data, str);
         assert.equal(res.request.path, '/two');
         done();
-      });
+      }).catch(done);;
     });
   });
 
@@ -289,7 +289,7 @@ describe('supports http with nodejs', function () {
         assert.equal(res.status, 302);
         assert.equal(res.headers['location'], '/foo');
         done();
-      });
+      }).catch(done);;
     });
   });
 
@@ -303,9 +303,10 @@ describe('supports http with nodejs', function () {
     }).listen(4444, function () {
       axios.get('http://localhost:4444/', {
         maxRedirects: 3
-      }).catch(function (error) {
+      }).catch(function(error) {
+        assert.equal(error.code, 'ERR_FR_TOO_MANY_REDIRECTS');
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -329,9 +330,7 @@ describe('supports http with nodejs', function () {
       axios.head('http://localhost:4444/one').then(function (res) {
         assert.equal(res.status, 200);
         done();
-      }).catch(function (err) {
-        done(err);
-      });
+      }).catch(done);
     });
   });
 
@@ -352,9 +351,8 @@ describe('supports http with nodejs', function () {
         axios.get('http://localhost:4444/').then(function (res) {
           assert.deepEqual(res.data, data);
           done();
-        });
+        }).catch(done);
       });
-
     });
   });
 
@@ -366,7 +364,7 @@ describe('supports http with nodejs', function () {
     }).listen(4444, function () {
       axios.get('http://localhost:4444/').catch(function (error) {
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -386,7 +384,7 @@ describe('supports http with nodejs', function () {
         }).then(function(res) {
           assert.equal(res.data.toString('base64'), zipped.toString('base64'));
           done();
-        });
+        }).catch(done);
       });
     });
   });
@@ -401,7 +399,7 @@ describe('supports http with nodejs', function () {
       axios.get('http://localhost:4444/').then(function (res) {
         assert.equal(res.data, str);
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -415,7 +413,7 @@ describe('supports http with nodejs', function () {
         var base64 = Buffer.from(user + ':', 'utf8').toString('base64');
         assert.equal(res.data, 'Basic ' + base64);
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -429,7 +427,7 @@ describe('supports http with nodejs', function () {
         var base64 = Buffer.from('foo:bar', 'utf8').toString('base64');
         assert.equal(res.data, 'Basic ' + base64);
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -440,7 +438,7 @@ describe('supports http with nodejs', function () {
       axios.get('http://localhost:4444/').then(function (res) {
         assert.ok(/^axios\/[\d.]+$/.test(res.data), `User-Agent header does not match: ${res.data}`);
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -452,7 +450,7 @@ describe('supports http with nodejs', function () {
       axios.get('http://localhost:4444/', { headers }).then(function (res) {
         assert.equal(res.data, 'foo bar');
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -464,7 +462,7 @@ describe('supports http with nodejs', function () {
       var headers = { 'CoNtEnT-lEnGtH': '42' }; // wonky casing to ensure caseless comparison
       axios.post('http://localhost:4444/', 'foo', { headers }).then(function () {
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -571,7 +569,7 @@ describe('supports http with nodejs', function () {
       }).catch(function (err) {
         assert.deepEqual(err.exists, true)
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -596,11 +594,7 @@ describe('supports http with nodejs', function () {
           assert.equal(resp.status, 200);
           assert.equal(resp.statusText, 'OK');
           done();
-        })
-        .catch(function (error) {
-          assert.ifError(error);
-          done();
-        });
+        }).catch(done);
     });
   });
 
@@ -621,7 +615,7 @@ describe('supports http with nodejs', function () {
             assert.equal(string, fs.readFileSync(__filename, 'utf8'));
             done();
           });
-        });
+        }).catch(done);
     });
   });
 
@@ -634,11 +628,11 @@ describe('supports http with nodejs', function () {
       axios.post('http://localhost:4444/',
         fs.createReadStream(notExitPath)
       ).then(function (res) {
-        assert.fail();
+        assert.fail('expected ENOENT error');
       }).catch(function (err) {
         assert.equal(err.message, `ENOENT: no such file or directory, open \'${notExitPath}\'`);
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -661,7 +655,7 @@ describe('supports http with nodejs', function () {
             assert.equal(string, buf.toString());
             done();
           });
-        });
+        }).catch(done);
     });
   });
 
@@ -743,7 +737,7 @@ describe('supports http with nodejs', function () {
       }).then(function (res) {
         assert.equal(res.data, '123456789', 'should not pass through proxy');
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -867,7 +861,7 @@ describe('supports http with nodejs', function () {
         axios.get('http://localhost:4444/').then(function (res) {
           assert.equal(res.data, '4567', 'should not use proxy for domains in no_proxy');
           done();
-        });
+        }).catch(done);
       });
     });
   });
@@ -904,7 +898,7 @@ describe('supports http with nodejs', function () {
         axios.get('http://localhost:4444/').then(function (res) {
           assert.equal(res.data, '45671234', 'should use proxy for domains not in no_proxy');
           done();
-        });
+        }).catch(done);
       });
     });
   });
@@ -934,7 +928,7 @@ describe('supports http with nodejs', function () {
           assert.equal(proxyAuthPassedToServer, undefined, 'should not authenticate to the server');
           assert.equal(proxyAuthPassedToProxy, 'Basic ' + base64, 'should authenticate to the proxy');
           done();
-        });
+        }).catch(done);
       });
     });
   });
@@ -957,7 +951,7 @@ describe('supports http with nodejs', function () {
           assert.equal(proxyAuthPassedToServer, undefined, 'should not authenticate to the server');
           assert.equal(proxyAuthPassedToProxy, 'Basic ' + base64, 'should authenticate to the proxy set by process.env.http_proxy');
           done();
-        });
+        }).catch(done);
       });
     });
   });
@@ -986,7 +980,7 @@ describe('supports http with nodejs', function () {
           assert.equal(proxyAuthPassedToServer, undefined, 'should not authenticate to the server');
           assert.equal(proxyAuthPassedToProxy, 'Basic abc123', 'should authenticate to the proxy set by proxy-authorization header');
           done();
-        });
+        }).catch(done);
       });
     });
   });
@@ -1017,7 +1011,7 @@ describe('supports http with nodejs', function () {
         assert.equal(res.config.baseURL, 'http://localhost:4444/');
         assert.equal(res.config.url, '/foo');
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -1029,7 +1023,7 @@ describe('supports http with nodejs', function () {
       axios.get('http://localhost:4444/'
       ).then(function (res) {
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -1043,10 +1037,9 @@ describe('supports http with nodejs', function () {
         headers: {
           "User-Agent": null
         }
-      }
-      ).then(function (res) {
+      }).then(function (res) {
         done();
-      });
+      }).catch(done);
     });
   });
 
@@ -1071,15 +1064,14 @@ describe('supports http with nodejs', function () {
       }).catch(function (err) {
         error = err;
         failure = true;
-      }).finally(function () {
+      }).then(function () {
         assert.strictEqual(success, false, 'request should not succeed');
         assert.strictEqual(failure, true, 'request should fail');
         assert.strictEqual(error.code, 'ERR_REQUEST_ABORTED');
         assert.strictEqual(error.message, 'error request aborted');
         done();
-      });
+      }).catch(done);
     });
   });
-
 });
 
