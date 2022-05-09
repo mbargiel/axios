@@ -62,7 +62,7 @@ function createSecureProxy(httpOrHttpsModule, proxyCb) {
   }).on('connect', function (req, clientSocket, head){
     var parsed = url.parse('http://' + req.url);
     var serverSocket = net.connect(parsed.port, parsed.hostname, function onServerConnect() {
-      proxyCb()
+      proxyCb(req)
 
       clientSocket.write('HTTP/1.1 200 Connection Established\r\n' +
         'Proxy-agent: Axios-Test-Proxy\r\n' +
@@ -752,13 +752,15 @@ describe('supports http with nodejs', function () {
         cert: fs.readFileSync(path.join(__dirname, 'cert.pem'))
       };
       var proxyUsed = false;
+      var connectHeaders = [];
 
       server = https.createServer(options, function (req, res) {
         res.setHeader('Content-Type', 'text/html; charset=UTF-8');
         res.end('12345');
       }).listen(4444, function () {
-        proxy = createSecureProxy(testCase.httpOrHttpsModule, function() {
+        proxy = createSecureProxy(testCase.httpOrHttpsModule, function(req) {
           proxyUsed = true;
+          connectHeaders = Object.keys(req.headers);
         }).listen(4000, function () {
           axios.get('https://localhost:4444/', {
             proxy: {
@@ -772,6 +774,9 @@ describe('supports http with nodejs', function () {
           }).then(function (res) {
             assert.equal(res.data, '12345', 'should get server data');
             assert.equal(proxyUsed, true, 'should pass through proxy');
+            connectHeaders.forEach(function (header) {
+              assert.ok(['proxy-authorization', 'host', 'connection'].includes(header), 'should not include unsupported CONNECT header')
+            })
             done();
           }).catch(done);
         });
