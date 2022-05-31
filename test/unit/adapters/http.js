@@ -363,6 +363,38 @@ describe('supports http with nodejs', function () {
     });
   });
 
+  it('should allow custom proxy to be set by user in beforeRedirect', function (done) {
+    var requestCount = 0;
+    var totalRedirectCount = 1;
+    server = http.createServer(function (req, res) {
+      requestCount += 1;
+      if (requestCount <= totalRedirectCount) {
+        res.setHeader('Location', 'http://localhost:4444');
+        res.writeHead(302);
+      }
+      res.end();
+    }).listen(4444, function () {
+      var proxyUseCount = 0;
+      proxy = createBasicProxy(http, function () {
+        proxyUseCount += 1;
+      }).listen(4000, function () {
+        axios.get('http://localhost:4444/', {
+          proxy: false,
+          maxRedirects: totalRedirectCount,
+          beforeRedirect: function (options, config) {
+            config.proxy = {
+              host: 'localhost',
+              port: 4000
+            }
+          }
+        }).then(function (res) {
+          assert.equal(proxyUseCount, 1, 'should allow configuring proxy in redirect');
+          done();
+        }).catch(done);
+      });
+    });
+  });
+
   it('should preserve the HTTP verb on redirect', function (done) {
     server = http.createServer(function (req, res) {
       if (req.method.toLowerCase() !== "head") {
